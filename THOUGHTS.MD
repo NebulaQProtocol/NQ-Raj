@@ -143,3 +143,74 @@ Potential improvements include:
 - governance-controlled reward rate adjustments
 - dynamic cooldown periods
 - integration with on-chain auditing tools
+
+## Data Structure Choice
+
+User balances and reward accounting are stored using mappings instead of arrays.
+
+mapping(address => uint256) stakeBalance  
+mapping(address => uint256) rewardDebt  
+
+Mappings were chosen for the following reasons:
+
+1. **Constant-time access (O(1))**
+
+Mappings allow direct lookup of a user's stake using their address. Arrays would require iteration to locate a specific user, which is inefficient and not scalable on-chain.
+
+2. **Gas efficiency**
+
+Iterating over arrays on-chain is expensive and could make transactions fail due to gas limits if the number of stakers grows large. Using mappings avoids loops entirely.
+
+3. **Scalability**
+
+The staking contract may have thousands of participants. Using arrays would require looping to distribute rewards, which is impractical in smart contracts.
+
+4. **Industry-standard reward accounting**
+
+The contract uses a reward-per-share accounting model similar to the MasterChef pattern used in many DeFi protocols. This design relies on mappings to store per-user state without requiring iteration over all users.
+
+Because of these factors, mappings are the safest and most gas-efficient structure for managing user staking data.
+
+## Re-entrancy Mitigation
+
+Re-entrancy protection was implemented using multiple layers rather than relying solely on OpenZeppelin’s ReentrancyGuard.
+
+### 1. Mutex Lock
+
+A custom mutex lock modifier was implemented:
+
+modifier lock()
+
+This modifier prevents a function from being entered again while it is already executing.
+
+Functions protected by this modifier include:
+
+- stake()
+- finalizeWithdraw()
+
+This ensures that malicious contracts cannot recursively call these functions during execution.
+
+### 2. Checks-Effects-Interactions Pattern
+
+The contract follows the checks-effects-interactions pattern:
+
+1. Validate inputs and conditions
+2. Update internal state
+3. Perform external token transfers
+
+Updating the contract state before external calls ensures that re-entrant calls cannot manipulate balances.
+
+### 3. Minimal External Calls
+
+External interactions are limited to ERC20 token transfers after state updates. This reduces the attack surface for re-entrancy.
+
+### 4. Explicit Control Flow
+
+The withdrawal flow requires two steps:
+
+requestWithdraw() → start cooldown  
+finalizeWithdraw() → complete withdrawal
+
+This separation further reduces the risk of atomic exploit patterns such as flash loan attacks.
+
+Together, these mechanisms provide strong protection against re-entrancy attacks without relying solely on external libraries.
